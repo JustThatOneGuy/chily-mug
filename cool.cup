@@ -81,15 +81,27 @@ nonterminal Expression expr;
 nonterminal Expressions actuals, exp_list;
 nonterminal Formals formals, formals_list;
 nonterminal Formal form;
+nonterminal Expressions block_body;
+nonterminal Cases case_body;
+nonterminal branch case_arm;
+nonterminal let let_expr;
 
 /*
  * Precedence declarations.
  */
-/*** FILL-IN HERE ***/
-
-
-
-
+precedence right ASSIGN;
+precedence left NOT;
+precedence left EQ;
+precedence left LT;
+precedence left LE;
+precedence left MINUS;
+precedence left PLUS;
+precedence left DIV;
+precedence left MULT;
+precedence left ISVOID;
+precedence left NEG;
+precedence left AT;
+precedence left DOT;
 
 
 
@@ -133,6 +145,7 @@ class_cc
 				    f, curr_filename()); :}
 	| CLASS TYPEID:n INHERITS TYPEID:p LBRACE optional_feature_list:f RBRACE SEMI
 	    {: RESULT = new class_c(curr_lineno(), n, p, f, curr_filename()); :}
+    | error RBRACE SEMI
 	;
 
 
@@ -153,6 +166,8 @@ feature_list
 feature
     ::= OBJECTID:name COLON TYPEID:type SEMI
         {: RESULT = new attr(curr_lineno(), name, type, new no_expr(curr_lineno())); :}
+    | OBJECTID:name COLON TYPEID:type ASSIGN expr:value SEMI
+        {: RESULT = new attr(curr_lineno(), name, type, value); :}
     | OBJECTID:name formals:formals COLON TYPEID:type LBRACE expr:e RBRACE SEMI
         {: RESULT = new method(curr_lineno(), name, formals, type, e);  :}
     ;
@@ -197,13 +212,33 @@ expr
     | OBJECTID:name ASSIGN expr:value
         {: RESULT = new assign(curr_lineno(), name, value); :}
     | expr:e DOT OBJECTID:method actuals:args
-        {: RESULT = new static_dispatch(curr_lineno(), e, null, method, args); :}
-    | LET OBJECTID:name COLON TYPEID:type ASSIGN expr:e1 IN expr:e2 
-        {: RESULT = new let(curr_lineno(), name, type, e1,e2); :}
+        {: RESULT = new dispatch(curr_lineno(), e, method, args); :}
+    | expr:e AT TYPEID:type DOT OBJECTID:method actuals:args
+        {: RESULT = new static_dispatch(curr_lineno(), e, type, method, args); :}
+    | LET let_expr:let 
+        {: RESULT = let; :}
     | IF expr: e1 THEN expr:e2 ELSE expr:e3 FI
         {: RESULT = new cond(curr_lineno(), e1, e2, e3); :}
-        ;
+    | LBRACE block_body:b SEMI RBRACE
+        {: RESULT = new block(curr_lineno(), b); :}
+    | CASE expr:dep OF case_body:body SEMI ESAC
+        {: RESULT = new typcase(curr_lineno(), dep, body); :}
+    | WHILE expr:cond LOOP expr:body POOL
+        {: RESULT = new loop(curr_lineno(), cond, body); :}
+    | ISVOID expr:e
+        {: RESULT = new isvoid(curr_lineno(), e); :}
+    ;
 
+let_expr
+    ::= OBJECTID:name COLON TYPEID:type ASSIGN expr:value IN expr:body
+        {: RESULT = new let(curr_lineno(), name, type, value, body); :}
+    | OBJECTID:name COLON TYPEID:type IN expr:body
+        {: RESULT = new let(curr_lineno(), name, type, new no_expr(curr_lineno()), body); :}
+    | OBJECTID:name COLON TYPEID:type ASSIGN expr:value COMMA let_expr:rest
+        {: RESULT = new let(curr_lineno(), name, type, value, rest); :}
+    | OBJECTID:name COLON TYPEID:type COMMA let_expr:rest
+        {: RESULT = new let(curr_lineno(), name, type, new no_expr(curr_lineno()), rest); :}
+    ;
 
 /* Method arguments */
 actuals
@@ -243,4 +278,23 @@ formals_list
 form
     ::= OBJECTID:arg COLON TYPEID:type
         {: RESULT = new formalc(curr_lineno(), arg, type); :}
+    ;
+
+block_body
+	::= expr:e
+	    {: RESULT = (new Expressions(curr_lineno())).appendElement(e); :} 
+        /* Several expressions */
+	| block_body:el SEMI expr:e
+	    {: RESULT = el.appendElement(e); :}
+	;
+case_body   
+    ::= case_arm:ca
+        {: RESULT = (new Cases(curr_lineno())).appendElement(ca); :}
+    | case_body:cb SEMI case_arm:ca
+        {: RESULT = cb.appendElement(ca); :}
+    ;
+ 
+case_arm
+    ::= OBJECTID:o COLON TYPEID:t DARROW expr:e 
+        {: RESULT = new branch(curr_lineno(), o, t, e); :}
     ;
