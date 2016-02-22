@@ -138,6 +138,7 @@ class_list
  *
  * If no parent is specified, the class inherits from the Object class.
  */
+ 
 class_cc
 	::= CLASS TYPEID:n LBRACE optional_feature_list:f RBRACE SEMI
 	    {: RESULT = new class_c(curr_lineno(), n, 
@@ -145,6 +146,8 @@ class_cc
 				    f, curr_filename()); :}
 	| CLASS TYPEID:n INHERITS TYPEID:p LBRACE optional_feature_list:f RBRACE SEMI
 	    {: RESULT = new class_c(curr_lineno(), n, p, f, curr_filename()); :}
+        
+    /* Valid classes always end in '};', so in case of error we want to skip to '};'. */
     | error RBRACE SEMI
 	;
 
@@ -164,12 +167,20 @@ feature_list
     ;
     
 feature
+    /* An attribute like 'x:T;' */
     ::= OBJECTID:name COLON TYPEID:type SEMI
         {: RESULT = new attr(curr_lineno(), name, type, new no_expr(curr_lineno())); :}
+        
+    /* An attribute like 'x:T <- e;' */
     | OBJECTID:name COLON TYPEID:type ASSIGN expr:value SEMI
         {: RESULT = new attr(curr_lineno(), name, type, value); :}
+        
+    /* A method like 'foo():T { e };' */
     | OBJECTID:name formals:formals COLON TYPEID:type LBRACE expr:e RBRACE SEMI
         {: RESULT = new method(curr_lineno(), name, formals, type, e);  :}
+        
+    /* A feature always ends in a semicolon, so skip to ';' in case of error. */
+    | error SEMI
     ;
 
 /* Expressions */
@@ -219,7 +230,7 @@ expr
         {: RESULT = let; :}
     | IF expr: e1 THEN expr:e2 ELSE expr:e3 FI
         {: RESULT = new cond(curr_lineno(), e1, e2, e3); :}
-    | LBRACE block_body:b SEMI RBRACE
+    | LBRACE block_body:b RBRACE
         {: RESULT = new block(curr_lineno(), b); :}
     | CASE expr:dep OF case_body:body SEMI ESAC
         {: RESULT = new typcase(curr_lineno(), dep, body); :}
@@ -229,15 +240,30 @@ expr
         {: RESULT = new isvoid(curr_lineno(), e); :}
     ;
 
+/* The contents of a let expression, excluding the keyword 'let' itself.
+   Multi-bindings are implemented in a tail-recursive fashion.
+
+   This is split into four cases: final vs. non-final bindings, 
+   and initialized and non-initialized bindings.
+
+   By "binding", we mean something like 'x:T<-e' that you find at the 
+   beginning of a let expression. */
 let_expr
+    /* Final assignments end in 'in' */
     ::= OBJECTID:name COLON TYPEID:type ASSIGN expr:value IN expr:body
         {: RESULT = new let(curr_lineno(), name, type, value, body); :}
     | OBJECTID:name COLON TYPEID:type IN expr:body
         {: RESULT = new let(curr_lineno(), name, type, new no_expr(curr_lineno()), body); :}
+        
+    /* Non-final assignments are followed by another let_expr */
     | OBJECTID:name COLON TYPEID:type ASSIGN expr:value COMMA let_expr:rest
         {: RESULT = new let(curr_lineno(), name, type, value, rest); :}
     | OBJECTID:name COLON TYPEID:type COMMA let_expr:rest
         {: RESULT = new let(curr_lineno(), name, type, new no_expr(curr_lineno()), rest); :}
+        
+    /* In case of error, skip to the next comma and attempt to parse the rest of the
+       let expression. */
+    | error COMMA let_expr:rest
     ;
 
 /* Method arguments */
@@ -261,6 +287,7 @@ exp_list
 	    {: RESULT = el.appendElement(e); :}
 	;
 
+/* The formal arguments of a method. */
 formals
     ::= LPAREN RPAREN
         {: RESULT = new Formals(curr_lineno()); :}
@@ -268,32 +295,47 @@ formals
         {: RESULT = fl; :}
     ;
 
+/* A non-empty list of formal arguments. */
 formals_list
     ::= form:f
         {: RESULT = (new Formals(curr_lineno())).appendElement(f); :}
     | formals_list:fl COMMA form:f
         {: RESULT = fl.appendElement(f); :}
     ;
- 
+
+/* A single formal argument of the form 'x: T' */
 form
     ::= OBJECTID:arg COLON TYPEID:type
         {: RESULT = new formalc(curr_lineno(), arg, type); :}
     ;
 
+/* The contents of a block (not including the braces) */
 block_body
-	::= expr:e
+	::= expr:e SEMI
 	    {: RESULT = (new Expressions(curr_lineno())).appendElement(e); :} 
-        /* Several expressions */
-	| block_body:el SEMI expr:e
-	    {: RESULT = el.appendElement(e); :}
+    
+    /* Several expressions.
+    
+       The null check is for error handling; if a block_body has an error in it, the prefix
+       block_body is evaluated as null and we continue parsing. To avoid a NullPointerException,
+       we propagate the 'null' upwards. */
+	| block_body:el expr:e SEMI
+	    {: if (el == null) { RESULT = null; } else { RESULT = el.appendElement(e); } :}
+        
+    /* The individual expressions of a block are separated by semicolons, so in case of error we
+       skip to the next ';' */
+    | error SEMI
 	;
+
+/* The contents of a case expression, excluding the 'case' and 'esac' */    
 case_body   
     ::= case_arm:ca
         {: RESULT = (new Cases(curr_lineno())).appendElement(ca); :}
     | case_body:cb SEMI case_arm:ca
         {: RESULT = cb.appendElement(ca); :}
     ;
- 
+
+/* An individual branch (or "arm") of a case, in the form 'x:T => e' */
 case_arm
     ::= OBJECTID:o COLON TYPEID:t DARROW expr:e 
         {: RESULT = new branch(curr_lineno(), o, t, e); :}

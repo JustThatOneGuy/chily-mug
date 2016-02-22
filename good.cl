@@ -28,6 +28,7 @@ class Main {
         let x: Bar <- 3, y: Bar <- 4 in 5;
         let x: Bar in 1337;
         let x: Bar, y: Baz, z: Boo <- 4 in 1789;
+        let x: Bar <- 3 in x + 1;
         
         case 1 of
             foo: Bar => 4;
@@ -57,7 +58,7 @@ class Main {
         true;
         false;
         
-        3 * 5 + 1 * (1 - 2) / 3;
+        3 * ~5 + 1 * (1 - 2) / 3;
         3 + 5 - 1;
     }};
 };
